@@ -11,7 +11,7 @@ function Dashboard() {
   const [currentUserEmail, setCurrentUserEmail] = useState("");
 
   useEffect(() => {
-    // Get current user email from Firebase auth
+    // Geting the current user email from Firebase 
     const auth = getAuth();
     const user = auth.currentUser;
     if (user && user.email) {
@@ -20,7 +20,7 @@ function Dashboard() {
     }
   }, []);
 
-  // Fetch students from Firebase
+  // Fetch students datafrom Firebase
   const fetchStudents = async () => {
     try {
       const querySnapshot = await getDocs(collection(db, "students"));
@@ -32,7 +32,7 @@ function Dashboard() {
         });
       });
       
-      // Sort by join date (newest first)
+      // Soring
       studentsData.sort((a, b) => new Date(b.joinDate) - new Date(a.joinDate));
       setStudents(studentsData);
       setLoading(false);
@@ -59,14 +59,14 @@ function Dashboard() {
     }
   };
 
-  // Filter students based on search term
+  // Filter students based on searing
   const filteredStudents = students.filter(student =>
     student.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     student.rollNo?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     student.email?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  // Check if current user is a student
+  // if current student is a stident
   const currentStudent = students.find(student => 
     student.email === currentUserEmail
   );
@@ -198,5 +198,6 @@ function Dashboard() {
     </div>
   );
 }
+
 
 export default Dashboard;
