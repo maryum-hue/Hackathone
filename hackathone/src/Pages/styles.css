@@ -899,7 +899,7 @@
     }
   }
   
-  /* Fix for StudentCard page */
+  /*StudentCard page */
   .student-card-container .card-header {
     display: flex;
     flex-direction: column;
@@ -913,4 +913,5 @@
       justify-content: space-between;
       align-items: center;
     }
+
   }
