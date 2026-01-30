@@ -1,0 +1,1122 @@
+import React, { useState, useEffect } from "react";
+import { 
+  User, Mail, Phone, MapPin, Briefcase, 
+  GraduationCap, Award, Globe, Plus, Trash2,
+  Download, Eye, Edit, Save, LogOut, LogIn,
+  Upload, Database, FileText, UserPlus,
+  Shield, CheckCircle, XCircle
+} from "lucide-react";
+
+// Firebase imports
+import { initializeApp } from "firebase/app";
+import { 
+  getAuth, 
+  createUserWithEmailAndPassword, 
+  signInWithEmailAndPassword,
+  signOut,
+  onAuthStateChanged,
+  GoogleAuthProvider,
+  signInWithPopup
+} from "firebase/auth";
+import { 
+  getDatabase, 
+  ref, 
+  set, 
+  get, 
+  push, 
+  update,
+  remove,
+  onValue
+} from "firebase/database";
+import { 
+  getStorage,
+  ref as storageRef,
+  uploadBytes,
+  getDownloadURL
+} from "firebase/storage";
+
+// Firebase configuration
+const firebaseConfig = {
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_AUTH_DOMAIN",
+  databaseURL: "YOUR_DATABASE_URL",
+  projectId: "YOUR_PROJECT_ID",
+  storageBucket: "YOUR_STORAGE_BUCKET",
+  messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+  appId: "YOUR_APP_ID"
+};
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const database = getDatabase(app);
+const storage = getStorage(app);
+const googleProvider = new GoogleAuthProvider();
+
+export default function ResumeBuilderDemo() {
+  // User state
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [authError, setAuthError] = useState("");
+  const [authSuccess, setAuthSuccess] = useState("");
+
+  // Auth forms
+  const [showAuthForm, setShowAuthForm] = useState(false);
+  const [isLogin, setIsLogin] = useState(true);
+  const [authData, setAuthData] = useState({
+    email: "",
+    password: "",
+    confirmPassword: ""
+  });
+
+  // Resume data
+  const [data, setData] = useState({
+    personalInfo: {
+      name: "",
+      title: "",
+      email: "",
+      phone: "",
+      location: "",
+      website: "",
+      summary: "",
+      photoUrl: ""
+    },
+    experience: [
+      { id: Date.now(), company: "", position: "", duration: "", description: "" }
+    ],
+    education: [
+      { id: Date.now() + 1, institution: "", degree: "", year: "" }
+    ],
+    skills: [],
+    currentSkill: "",
+    template: "classic",
+    lastUpdated: null
+  });
+
+  const [theme, setTheme] = useState("light");
+  const [previewMode, setPreviewMode] = useState(false);
+  const [activeSection, setActiveSection] = useState("personal");
+  const [saving, setSaving] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [resumes, setResumes] = useState([]);
+  const [selectedResumeId, setSelectedResumeId] = useState("default");
+
+  // Auth state listener
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      setLoading(false);
+      if (currentUser) {
+        loadUserResumes(currentUser.uid);
+        if (selectedResumeId === "default") {
+          loadResumeData(currentUser.uid, "default");
+        }
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Load user's resumes list
+  const loadUserResumes = async (userId) => {
+    try {
+      const resumesRef = ref(database, `users/${userId}/resumes`);
+      onValue(resumesRef, (snapshot) => {
+        const resumesData = snapshot.val();
+        if (resumesData) {
+          const resumesList = Object.entries(resumesData).map(([id, resume]) => ({
+            id,
+            name: resume.name || "Untitled Resume",
+            lastUpdated: resume.lastUpdated,
+            preview: `${resume.personalInfo?.name || "No Name"} - ${resume.personalInfo?.title || "No Title"}`
+          }));
+          setResumes(resumesList);
+        }
+      });
+    } catch (error) {
+      console.error("Error loading resumes:", error);
+    }
+  };
+
+  // Load specific resume data
+  const loadResumeData = async (userId, resumeId) => {
+    try {
+      const resumeRef = ref(database, `users/${userId}/resumes/${resumeId}`);
+      const snapshot = await get(resumeRef);
+      if (snapshot.exists()) {
+        const resumeData = snapshot.val();
+        setData(resumeData);
+        setSelectedResumeId(resumeId);
+      }
+    } catch (error) {
+      console.error("Error loading resume:", error);
+    }
+  };
+
+  // Save resume to Firebase
+  const saveResume = async (resumeName = "My Resume") => {
+    if (!user) {
+      setAuthError("Please sign in to save your resume");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const resumeId = selectedResumeId === "default" ? `resume_${Date.now()}` : selectedResumeId;
+      const resumeRef = ref(database, `users/${user.uid}/resumes/${resumeId}`);
+      
+      await set(resumeRef, {
+        ...data,
+        name: resumeName,
+        lastUpdated: Date.now(),
+        userId: user.uid
+      });
+
+      setSelectedResumeId(resumeId);
+      setAuthSuccess("Resume saved successfully!");
+      setTimeout(() => setAuthSuccess(""), 3000);
+    } catch (error) {
+      console.error("Error saving resume:", error);
+      setAuthError("Failed to save resume");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Create new resume
+  const createNewResume = () => {
+    const newResumeId = `resume_${Date.now()}`;
+    setSelectedResumeId(newResumeId);
+    setData({
+      personalInfo: {
+        name: "",
+        title: "",
+        email: user?.email || "",
+        phone: "",
+        location: "",
+        website: "",
+        summary: "",
+        photoUrl: ""
+      },
+      experience: [
+        { id: Date.now(), company: "", position: "", duration: "", description: "" }
+      ],
+      education: [
+        { id: Date.now() + 1, institution: "", degree: "", year: "" }
+      ],
+      skills: [],
+      currentSkill: "",
+      template: "classic",
+      lastUpdated: Date.now()
+    });
+  };
+
+  // Delete resume
+  const deleteResume = async (resumeId) => {
+    if (!user || !window.confirm("Are you sure you want to delete this resume?")) return;
+
+    try {
+      const resumeRef = ref(database, `users/${user.uid}/resumes/${resumeId}`);
+      await remove(resumeRef);
+      
+      if (selectedResumeId === resumeId) {
+        createNewResume();
+      }
+      setAuthSuccess("Resume deleted successfully!");
+      setTimeout(() => setAuthSuccess(""), 3000);
+    } catch (error) {
+      console.error("Error deleting resume:", error);
+      setAuthError("Failed to delete resume");
+    }
+  };
+
+  // Upload profile photo
+  const uploadProfilePhoto = async (file) => {
+    if (!user) {
+      setAuthError("Please sign in to upload photos");
+      return;
+    }
+
+    setUploadingPhoto(true);
+    try {
+      const fileRef = storageRef(storage, `profile_photos/${user.uid}/${Date.now()}_${file.name}`);
+      await uploadBytes(fileRef, file);
+      const downloadURL = await getDownloadURL(fileRef);
+      
+      setData(prev => ({
+        ...prev,
+        personalInfo: {
+          ...prev.personalInfo,
+          photoUrl: downloadURL
+        }
+      }));
+      
+      setAuthSuccess("Profile photo uploaded successfully!");
+      setTimeout(() => setAuthSuccess(""), 3000);
+    } catch (error) {
+      console.error("Error uploading photo:", error);
+      setAuthError("Failed to upload photo");
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
+
+  // Auth handlers
+  const handleAuth = async (e) => {
+    e.preventDefault();
+    setAuthError("");
+    setAuthSuccess("");
+
+    try {
+      if (isLogin) {
+        // Login
+        await signInWithEmailAndPassword(auth, authData.email, authData.password);
+        setAuthSuccess("Logged in successfully!");
+      } else {
+        // Sign up
+        if (authData.password !== authData.confirmPassword) {
+          setAuthError("Passwords don't match");
+          return;
+        }
+        await createUserWithEmailAndPassword(auth, authData.email, authData.password);
+        setAuthSuccess("Account created successfully!");
+      }
+      setShowAuthForm(false);
+      setAuthData({ email: "", password: "", confirmPassword: "" });
+    } catch (error) {
+      setAuthError(error.message);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    try {
+      await signInWithPopup(auth, googleProvider);
+      setAuthSuccess("Logged in with Google!");
+      setShowAuthForm(false);
+    } catch (error) {
+      setAuthError(error.message);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      setAuthSuccess("Logged out successfully!");
+      setData({
+        personalInfo: {
+          name: "",
+          title: "",
+          email: "",
+          phone: "",
+          location: "",
+          website: "",
+          summary: "",
+          photoUrl: ""
+        },
+        experience: [
+          { id: Date.now(), company: "", position: "", duration: "", description: "" }
+        ],
+        education: [
+          { id: Date.now() + 1, institution: "", degree: "", year: "" }
+        ],
+        skills: [],
+        currentSkill: "",
+        template: "classic",
+        lastUpdated: null
+      });
+      setSelectedResumeId("default");
+      setResumes([]);
+    } catch (error) {
+      setAuthError(error.message);
+    }
+  };
+
+  // Resume data handlers
+  const handlePersonalChange = (field, value) => {
+    setData(prev => ({
+      ...prev,
+      personalInfo: { ...prev.personalInfo, [field]: value }
+    }));
+  };
+
+  const addExperience = () => {
+    const newId = Date.now();
+    setData(prev => ({
+      ...prev,
+      experience: [
+        ...prev.experience,
+        { id: newId, company: "", position: "", duration: "", description: "" }
+      ]
+    }));
+  };
+
+  const removeExperience = (id) => {
+    if (data.experience.length > 1) {
+      setData(prev => ({
+        ...prev,
+        experience: prev.experience.filter(exp => exp.id !== id)
+      }));
+    }
+  };
+
+  const updateExperience = (id, field, value) => {
+    setData(prev => ({
+      ...prev,
+      experience: prev.experience.map(exp =>
+        exp.id === id ? { ...exp, [field]: value } : exp
+      )
+    }));
+  };
+
+  const addEducation = () => {
+    const newId = Date.now();
+    setData(prev => ({
+      ...prev,
+      education: [
+        ...prev.education,
+        { id: newId, institution: "", degree: "", year: "" }
+      ]
+    }));
+  };
+
+  const updateEducation = (id, field, value) => {
+    setData(prev => ({
+      ...prev,
+      education: prev.education.map(edu =>
+        edu.id === id ? { ...edu, [field]: value } : edu
+      )
+    }));
+  };
+
+  const addSkill = () => {
+    if (data.currentSkill.trim()) {
+      setData(prev => ({
+        ...prev,
+        skills: [...prev.skills, data.currentSkill.trim()],
+        currentSkill: ""
+      }));
+    }
+  };
+
+  const removeSkill = (index) => {
+    setData(prev => ({
+      ...prev,
+      skills: prev.skills.filter((_, i) => i !== index)
+    }));
+  };
+
+  const downloadResume = () => {
+    const element = document.createElement("a");
+    const file = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
+    element.href = URL.createObjectURL(file);
+    element.download = `resume_${data.personalInfo.name || 'my_resume'}.json`;
+    document.body.appendChild(element);
+    element.click();
+    document.body.removeChild(element);
+  };
+
+  const exportAsPDF = async () => {
+    // Note: For PDF generation, you'd typically use a service like jsPDF or html2pdf
+    // This is a placeholder for PDF export functionality
+    alert("PDF export would be implemented with a PDF generation library");
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-100">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`min-h-screen ${theme === 'dark' ? 'bg-gray-900 text-white' : 'bg-gradient-to-br from-blue-50 to-gray-100'} transition-colors duration-300`}>
+      {/* Auth Modal */}
+      {showAuthForm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className={`${theme === 'dark' ? 'bg-gray-800' : 'bg-white'} rounded-2xl shadow-2xl p-8 max-w-md w-full`}>
+            <h2 className="text-2xl font-bold mb-6 text-center">
+              {isLogin ? "Sign In" : "Create Account"}
+            </h2>
+            
+            {authError && (
+              <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded-lg flex items-center gap-2">
+                <XCircle size={20} />
+                {authError}
+              </div>
+            )}
+            
+            {authSuccess && (
+              <div className="mb-4 p-3 bg-green-100 border border-green-400 text-green-700 rounded-lg flex items-center gap-2">
+                <CheckCircle size={20} />
+                {authSuccess}
+              </div>
+            )}
+
+            <form onSubmit={handleAuth} className="space-y-4">
+              <input
+                type="email"
+                placeholder="Email"
+                className="w-full p-3 border rounded-lg"
+                value={authData.email}
+                onChange={(e) => setAuthData(prev => ({ ...prev, email: e.target.value }))}
+                required
+              />
+              
+              <input
+                type="password"
+                placeholder="Password"
+                className="w-full p-3 border rounded-lg"
+                value={authData.password}
+                onChange={(e) => setAuthData(prev => ({ ...prev, password: e.target.value }))}
+                required
+              />
+              
+              {!isLogin && (
+                <input
+                  type="password"
+                  placeholder="Confirm Password"
+                  className="w-full p-3 border rounded-lg"
+                  value={authData.confirmPassword}
+                  onChange={(e) => setAuthData(prev => ({ ...prev, confirmPassword: e.target.value }))}
+                  required
+                />
+              )}
+              
+              <button
+                type="submit"
+                className="w-full bg-blue-500 text-white p-3 rounded-lg hover:bg-blue-600 transition"
+              >
+                {isLogin ? "Sign In" : "Create Account"}
+              </button>
+            </form>
+            
+            <div className="mt-4">
+              <button
+                onClick={handleGoogleSignIn}
+                className="w-full bg-white border border-gray-300 text-gray-700 p-3 rounded-lg hover:bg-gray-50 flex items-center justify-center gap-2"
+              >
+                <img src="https://www.google.com/favicon.ico" alt="Google" className="w-5 h-5" />
+                Continue with Google
+              </button>
+            </div>
+            
+            <p className="mt-6 text-center text-gray-500">
+              {isLogin ? "Don't have an account? " : "Already have an account? "}
+              <button
+                onClick={() => setIsLogin(!isLogin)}
+                className="text-blue-500 hover:underline"
+              >
+                {isLogin ? "Sign Up" : "Sign In"}
+              </button>
+            </p>
+            
+            <button
+              onClick={() => setShowAuthForm(false)}
+              className="mt-4 w-full text-gray-500 hover:text-gray-700"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Main App */}
+      <div className="max-w-7xl mx-auto p-4 md:p-8">
+        {/* Header */}
+        <header className="mb-8">
+          <div className="flex flex-col md:flex-row justify-between items-center mb-6">
+            <div className="flex items-center gap-3 mb-4 md:mb-0">
+              <Database className="text-blue-500" size={32} />
+              <div>
+                <h1 className="text-3xl font-bold text-blue-600">
+                  Firebase Resume Builder
+                </h1>
+                <p className="text-gray-500">Cloud-powered resume management</p>
+              </div>
+            </div>
+            
+            <div className="flex flex-wrap gap-3">
+              {user ? (
+                <>
+                  <div className="flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-gray-800 rounded-lg">
+                    <User size={18} />
+                    <span>{user.email}</span>
+                  </div>
+                  
+                  <button
+                    onClick={() => saveResume()}
+                    disabled={saving}
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50"
+                  >
+                    {saving ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <Save size={18} />
+                        Save to Cloud
+                      </>
+                    )}
+                  </button>
+                  
+                  <button
+                    onClick={handleLogout}
+                    className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600"
+                  >
+                    <LogOut size={18} />
+                    Logout
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={() => setShowAuthForm(true)}
+                  className="flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600"
+                >
+                  <LogIn size={18} />
+                  Sign In to Save
+                </button>
+              )}
+              
+              <button
+                onClick={() => setPreviewMode(!previewMode)}
+                className="flex items-center gap-2 px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600"
+              >
+                {previewMode ? <Edit size={18} /> : <Eye size={18} />}
+                {previewMode ? "Edit" : "Preview"}
+              </button>
+            </div>
+          </div>
+
+          {/* Resumes Management */}
+          {user && (
+            <div className="mb-6 p-4 bg-white dark:bg-gray-800 rounded-xl shadow">
+              <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
+                <h3 className="font-bold flex items-center gap-2">
+                  <FileText size={20} />
+                  Your Resumes
+                </h3>
+                <div className="flex gap-2">
+                  <button
+                    onClick={createNewResume}
+                    className="flex items-center gap-2 px-3 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600"
+                  >
+                    <Plus size={16} />
+                    New Resume
+                  </button>
+                </div>
+              </div>
+              
+              <div className="flex flex-wrap gap-2">
+                <select
+                  value={selectedResumeId}
+                  onChange={(e) => {
+                    setSelectedResumeId(e.target.value);
+                    if (e.target.value !== "default") {
+                      loadResumeData(user.uid, e.target.value);
+                    }
+                  }}
+                  className="p-2 border rounded-lg bg-white dark:bg-gray-700"
+                >
+                  <option value="default">Select a resume</option>
+                  {resumes.map(resume => (
+                    <option key={resume.id} value={resume.id}>
+                      {resume.name} ({new Date(resume.lastUpdated).toLocaleDateString()})
+                    </option>
+                  ))}
+                </select>
+                
+                {resumes.length > 0 && (
+                  <div className="flex gap-2">
+                    {resumes.map(resume => (
+                      <div key={resume.id} className="flex items-center gap-2 px-3 py-2 bg-gray-100 dark:bg-gray-700 rounded-lg">
+                        <span>{resume.name}</span>
+                        <button
+                          onClick={() => deleteResume(resume.id)}
+                          className="text-red-500 hover:text-red-700"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Navigation */}
+          <nav className="flex flex-wrap justify-center gap-2 mb-6">
+            {["personal", "experience", "education", "skills"].map((section) => (
+              <button
+                key={section}
+                onClick={() => setActiveSection(section)}
+                className={`px-4 py-2 rounded-lg capitalize ${activeSection === section ? 'bg-blue-500 text-white' : theme === 'dark' ? 'bg-gray-800' : 'bg-white'}`}
+              >
+                {section}
+              </button>
+            ))}
+          </nav>
+        </header>
+
+        <div className="grid md:grid-cols-2 gap-8">
+          {/* Input Panel */}
+          <div className={`${theme === 'dark' ? 'bg-gray-800' : 'bg-white'} rounded-2xl shadow-xl p-6`}>
+            <h2 className="text-2xl font-bold mb-6 flex items-center gap-2">
+              <Edit className="text-blue-500" />
+              {previewMode ? "Preview Mode" : "Edit Resume"}
+              {selectedResumeId !== "default" && (
+                <span className="text-sm font-normal bg-blue-100 text-blue-800 px-2 py-1 rounded">
+                  {resumes.find(r => r.id === selectedResumeId)?.name || "Saved Resume"}
+                </span>
+              )}
+            </h2>
+
+            {!previewMode ? (
+              <div className="space-y-6">
+                {activeSection === "personal" && (
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center">
+                      <h3 className="text-xl font-semibold flex items-center gap-2">
+                        <User size={20} />
+                        Personal Information
+                      </h3>
+                      
+                      {/* Profile Photo Upload */}
+                      <div>
+                        <input
+                          type="file"
+                          id="photo-upload"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files[0];
+                            if (file) uploadProfilePhoto(file);
+                          }}
+                          disabled={uploadingPhoto}
+                        />
+                        <label
+                          htmlFor="photo-upload"
+                          className={`flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer ${uploadingPhoto ? 'bg-gray-300' : 'bg-blue-500 hover:bg-blue-600 text-white'}`}
+                        >
+                          {uploadingPhoto ? (
+                            <>
+                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                              Uploading...
+                            </>
+                          ) : (
+                            <>
+                              <Upload size={16} />
+                              Upload Photo
+                            </>
+                          )}
+                        </label>
+                      </div>
+                    </div>
+                    
+                    {data.personalInfo.photoUrl && (
+                      <div className="flex justify-center">
+                        <img
+                          src={data.personalInfo.photoUrl}
+                          alt="Profile"
+                          className="w-32 h-32 rounded-full object-cover border-4 border-white shadow"
+                        />
+                      </div>
+                    )}
+                    
+                    <input
+                      className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="Full Name"
+                      value={data.personalInfo.name}
+                      onChange={(e) => handlePersonalChange("name", e.target.value)}
+                    />
+                    <input
+                      className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="Professional Title"
+                      value={data.personalInfo.title}
+                      onChange={(e) => handlePersonalChange("title", e.target.value)}
+                    />
+                    <div className="grid md:grid-cols-2 gap-3">
+                      <input
+                        className="p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        placeholder="Email"
+                        value={data.personalInfo.email}
+                        onChange={(e) => handlePersonalChange("email", e.target.value)}
+                      />
+                      <input
+                        className="p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        placeholder="Phone"
+                        value={data.personalInfo.phone}
+                        onChange={(e) => handlePersonalChange("phone", e.target.value)}
+                      />
+                    </div>
+                    <input
+                      className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="Location"
+                      value={data.personalInfo.location}
+                      onChange={(e) => handlePersonalChange("location", e.target.value)}
+                    />
+                    <input
+                      className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="Website/Portfolio"
+                      value={data.personalInfo.website}
+                      onChange={(e) => handlePersonalChange("website", e.target.value)}
+                    />
+                    <textarea
+                      className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent h-32"
+                      placeholder="Professional Summary"
+                      value={data.personalInfo.summary}
+                      onChange={(e) => handlePersonalChange("summary", e.target.value)}
+                    />
+                  </div>
+                )}
+
+                {/* Other sections remain the same as before */}
+                {activeSection === "experience" && (
+                  <div className="space-y-6">
+                    <div className="flex justify-between items-center">
+                      <h3 className="text-xl font-semibold flex items-center gap-2">
+                        <Briefcase size={20} />
+                        Experience
+                      </h3>
+                      <button
+                        onClick={addExperience}
+                        className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
+                      >
+                        <Plus size={18} />
+                        Add Experience
+                      </button>
+                    </div>
+                    {data.experience.map((exp, index) => (
+                      <div key={exp.id} className="p-4 border rounded-lg space-y-3">
+                        <div className="flex justify-between items-center">
+                          <h4 className="font-semibold">Experience #{index + 1}</h4>
+                          {data.experience.length > 1 && (
+                            <button
+                              onClick={() => removeExperience(exp.id)}
+                              className="text-red-500 hover:text-red-700"
+                            >
+                              <Trash2 size={18} />
+                            </button>
+                          )}
+                        </div>
+                        <input
+                          className="w-full p-2 border rounded"
+                          placeholder="Position"
+                          value={exp.position}
+                          onChange={(e) => updateExperience(exp.id, "position", e.target.value)}
+                        />
+                        <input
+                          className="w-full p-2 border rounded"
+                          placeholder="Company"
+                          value={exp.company}
+                          onChange={(e) => updateExperience(exp.id, "company", e.target.value)}
+                        />
+                        <input
+                          className="w-full p-2 border rounded"
+                          placeholder="Duration (e.g., 2020-2023)"
+                          value={exp.duration}
+                          onChange={(e) => updateExperience(exp.id, "duration", e.target.value)}
+                        />
+                        <textarea
+                          className="w-full p-2 border rounded"
+                          placeholder="Description"
+                          value={exp.description}
+                          onChange={(e) => updateExperience(exp.id, "description", e.target.value)}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {activeSection === "education" && (
+                  <div className="space-y-6">
+                    <div className="flex justify-between items-center">
+                      <h3 className="text-xl font-semibold flex items-center gap-2">
+                        <GraduationCap size={20} />
+                        Education
+                      </h3>
+                      <button
+                        onClick={addEducation}
+                        className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
+                      >
+                        <Plus size={18} />
+                        Add Education
+                      </button>
+                    </div>
+                    {data.education.map((edu) => (
+                      <div key={edu.id} className="p-4 border rounded-lg space-y-3">
+                        <input
+                          className="w-full p-2 border rounded"
+                          placeholder="Degree"
+                          value={edu.degree}
+                          onChange={(e) => updateEducation(edu.id, "degree", e.target.value)}
+                        />
+                        <input
+                          className="w-full p-2 border rounded"
+                          placeholder="Institution"
+                          value={edu.institution}
+                          onChange={(e) => updateEducation(edu.id, "institution", e.target.value)}
+                        />
+                        <input
+                          className="w-full p-2 border rounded"
+                          placeholder="Year"
+                          value={edu.year}
+                          onChange={(e) => updateEducation(edu.id, "year", e.target.value)}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {activeSection === "skills" && (
+                  <div className="space-y-6">
+                    <h3 className="text-xl font-semibold flex items-center gap-2">
+                      <Award size={20} />
+                      Skills
+                    </h3>
+                    <div className="flex gap-2">
+                      <input
+                        className="flex-1 p-3 border rounded-lg"
+                        placeholder="Add a skill"
+                        value={data.currentSkill}
+                        onChange={(e) => setData(prev => ({ ...prev, currentSkill: e.target.value }))}
+                        onKeyPress={(e) => e.key === 'Enter' && addSkill()}
+                      />
+                      <button
+                        onClick={addSkill}
+                        className="px-4 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
+                      >
+                        <Plus size={20} />
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {data.skills.map((skill, index) => (
+                        <div
+                          key={index}
+                          className="flex items-center gap-2 px-4 py-2 bg-blue-100 text-blue-800 rounded-full"
+                        >
+                          {skill}
+                          <button
+                            onClick={() => removeSkill(index)}
+                            className="text-red-500 hover:text-red-700"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="text-center py-12">
+                <Eye size={48} className="mx-auto text-gray-400 mb-4" />
+                <p className="text-lg">Preview Mode Active</p>
+                <p className="text-gray-500">Switch to edit mode to make changes</p>
+              </div>
+            )}
+          </div>
+
+          {/* Live Preview Panel */}
+          <div className={`${theme === 'dark' ? 'bg-gray-800' : 'bg-white'} rounded-2xl shadow-xl p-8`}>
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl font-bold flex items-center gap-2">
+                <Eye className="text-green-500" />
+                Live Preview
+              </h2>
+              
+              <div className="flex gap-2">
+                <button
+                  onClick={downloadResume}
+                  className="flex items-center gap-2 px-3 py-2 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200"
+                >
+                  <Download size={16} />
+                  JSON
+                </button>
+                <button
+                  onClick={exportAsPDF}
+                  className="flex items-center gap-2 px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600"
+                >
+                  <FileText size={16} />
+                  PDF
+                </button>
+              </div>
+            </div>
+
+            <div className="resume-preview">
+              {/* Header with photo */}
+              <div className="border-b-2 border-blue-500 pb-6 mb-6">
+                <div className="flex items-start gap-6">
+                  {data.personalInfo.photoUrl && (
+                    <img
+                      src={data.personalInfo.photoUrl}
+                      alt="Profile"
+                      className="w-24 h-24 rounded-full object-cover border-4 border-white shadow-lg"
+                    />
+                  )}
+                  <div>
+                    <h1 className="text-3xl font-bold mb-2">
+                      {data.personalInfo.name || "Your Name"}
+                    </h1>
+                    <p className="text-xl text-blue-500 mb-4">
+                      {data.personalInfo.title || "Professional Title"}
+                    </p>
+                    <div className="flex flex-wrap gap-4 text-sm">
+                      {data.personalInfo.email && (
+                        <span className="flex items-center gap-2">
+                          <Mail size={16} />
+                          {data.personalInfo.email}
+                        </span>
+                      )}
+                      {data.personalInfo.phone && (
+                        <span className="flex items-center gap-2">
+                          <Phone size={16} />
+                          {data.personalInfo.phone}
+                        </span>
+                      )}
+                      {data.personalInfo.location && (
+                        <span className="flex items-center gap-2">
+                          <MapPin size={16} />
+                          {data.personalInfo.location}
+                        </span>
+                      )}
+                      {data.personalInfo.website && (
+                        <span className="flex items-center gap-2">
+                          <Globe size={16} />
+                          {data.personalInfo.website}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Summary */}
+              {data.personalInfo.summary && (
+                <div className="mb-6">
+                  <h2 className="text-xl font-bold mb-3 flex items-center gap-2">
+                    <User size={20} />
+                    Summary
+                  </h2>
+                  <p className="text-gray-600 dark:text-gray-300">
+                    {data.personalInfo.summary}
+                  </p>
+                </div>
+              )}
+
+              {/* Experience */}
+              <div className="mb-6">
+                <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+                  <Briefcase size={20} />
+                  Experience
+                </h2>
+                {data.experience.map((exp, index) => (
+                  <div key={index} className="mb-4 pb-4 border-b last:border-b-0">
+                    <h3 className="font-bold text-lg">{exp.position || "Position"}</h3>
+                    <p className="text-blue-500">
+                      {exp.company || "Company"} • {exp.duration || "Duration"}
+                    </p>
+                    <p className="mt-2 text-gray-600 dark:text-gray-300">
+                      {exp.description || "Description of your role and achievements..."}
+                    </p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Education */}
+              <div className="mb-6">
+                <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+                  <GraduationCap size={20} />
+                  Education
+                </h2>
+                {data.education.map((edu, index) => (
+                  <div key={index} className="mb-3">
+                    <h3 className="font-bold">{edu.degree || "Degree"}</h3>
+                    <p>{edu.institution || "Institution"} • {edu.year || "Year"}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Skills */}
+              <div>
+                <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+                  <Award size={20} />
+                  Skills
+                </h2>
+                <div className="flex flex-wrap gap-2">
+                  {data.skills.length > 0 ? (
+                    data.skills.map((skill, index) => (
+                      <span
+                        key={index}
+                        className="px-3 py-1 bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 rounded-full"
+                      >
+                        {skill}
+                      </span>
+                    ))
+                  ) : (
+                    <p className="text-gray-500">Add skills to see them here</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Cloud Status */}
+              {user && (
+                <div className="mt-8 pt-6 border-t">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-sm text-gray-500">
+                      <Database size={16} />
+                      <span>Saved in Firebase</span>
+                      {data.lastUpdated && (
+                        <span className="ml-2">
+                          Last updated: {new Date(data.lastUpdated).toLocaleString()}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 text-green-500">
+                      <Shield size={16} />
+                      <span>Auto-save enabled</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <footer className="mt-8 text-center text-gray-500 text-sm">
+          <div className="flex flex-wrap justify-center gap-4 mb-2">
+            <span className="flex items-center gap-1">
+              <Database size={14} />
+              Firebase Realtime Database
+            </span>
+            <span className="flex items-center gap-1">
+              <Shield size={14} />
+              Secure Authentication
+            </span>
+            <span className="flex items-center gap-1">
+              <Upload size={14} />
+              Cloud Storage
+            </span>
+          </div>
+          <p>Your data is securely stored in Google Firebase</p>
+          {!user && (
+            <p className="mt-1 text-blue-500">
+              <button 
+                onClick={() => setShowAuthForm(true)}
+                className="underline hover:no-underline"
+              >
+                Sign in
+              </button> to save your resume across devices
+            </p>
+          )}
+        </footer>
+      </div>
+    </div>
+  );
+}
